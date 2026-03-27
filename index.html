@@ -843,13 +843,54 @@ const ITEMS = [
 
 const FREQ_NAMES = { 7:'Semanal', 14:'Quincenal', 30:'Mensual', 60:'Bimensual', 90:'Trimestral', 120:'Cuatrimestral', 180:'Semestral', 365:'Anual' };
 
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbysd4bFjZWD25y4CkYE9eqT6auBzhnB0quCAWy8FA3eO1ybvv5BYGMqKbhZZ6Vg0udzPw/exec';
+
 let db = {};
 let currentItemId = null;
+let isSyncing = false;
 
 function loadDB() {
   try { db = JSON.parse(localStorage.getItem('plugueo-home-v1') || '{}'); } catch { db = {}; }
 }
 function saveDB() { localStorage.setItem('plugueo-home-v1', JSON.stringify(db)); }
+
+async function syncFromSheets() {
+  try {
+    const res = await fetch(APPS_SCRIPT_URL, { method: 'GET' });
+    const data = await res.json();
+    if (!data.ok || !data.items) return;
+    // Merge Sheets data into local db — Sheets is source of truth for last date
+    data.items.forEach(item => {
+      if (!item.lastDate || !item.item) return;
+      const id = ITEMS.find(i => i.name === item.item)?.id;
+      if (!id) return;
+      // Convert DD/MM/YYYY → YYYY-MM-DD
+      const [d, m, y] = item.lastDate.split('/');
+      const iso = `${y}-${m}-${d}`;
+      if (!db[id]) db[id] = [];
+      const already = db[id].some(e => e.date === iso);
+      if (!already) db[id].push({ date: iso });
+      db[id].sort((a,b) => a.date.localeCompare(b.date));
+    });
+    saveDB();
+  } catch(e) { console.warn('Sync from Sheets failed:', e); }
+}
+
+async function postToSheets(item, date, label) {
+  const body = {
+    item: item.name,
+    section: item.section,
+    date: date.split('-').reverse().join('/'),
+    label: label || '',
+    user: 'Daniel'
+  };
+  try {
+    await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+  } catch(e) { console.warn('Post to Sheets failed:', e); }
+}
 
 function today() { return new Date().toISOString().slice(0,10); }
 
@@ -1057,12 +1098,15 @@ function setToday() {
   document.getElementById('modal-date').value = today();
 }
 
-function saveEntry() {
+async function saveEntry() {
   if (!currentItemId) return;
   const date = document.getElementById('modal-date').value;
   if (!date) return;
   const labelInput = document.getElementById('entry-label');
   const label = labelInput ? labelInput.value.trim() : '';
+  const item = ITEMS.find(i => i.id === currentItemId);
+
+  // 1. Save locally immediately (optimistic)
   if (!db[currentItemId]) db[currentItemId] = [];
   const entry = { date };
   if (label) entry.label = label;
@@ -1070,8 +1114,12 @@ function saveEntry() {
   db[currentItemId].sort((a,b) => a.date.localeCompare(b.date));
   saveDB();
   closeModal();
-  showToast('✓ Registrado correctamente');
+  showToast('⏳ Guardando…');
   renderDashboard();
+
+  // 2. Post to Sheets in background
+  await postToSheets(item, date, label);
+  showToast('✓ Sincronizado con Sheets');
 }
 
 function deleteEntry(id, index) {
@@ -1092,6 +1140,11 @@ function showToast(msg) {
 // ── INIT ──────────────────────────────────────────────────────────────────
 loadDB();
 renderDashboard();
+// Sync from Sheets on load (background)
+syncFromSheets().then(() => {
+  renderDashboard();
+  renderList();
+});
 </script>
 </body>
 </html>
