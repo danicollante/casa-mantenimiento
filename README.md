@@ -1,99 +1,170 @@
-# casa-mantenimiento
-Phygital home maintenance tracker. HTML + localStorage → Google Sheets via Apps Script. NFC tag integration demo for Plugueo.
+[README.md](https://github.com/user-attachments/files/26310788/README.md)
+# 🏠 Casa Mantenimiento · Phygital Home Tracker
 
-App script for Google sheets
-// ── PLUGUEO · Casa Mantenimiento · Apps Script API ──────────────────────
-const SHEET_LOG = "📋 Log";
-const SHEET_ESTADO = "📊 Estado";
-const SS = SpreadsheetApp.getActiveSpreadsheet();
+> A physical NFC tag triggers a web app that logs home maintenance tasks to Google Sheets in real time — built with zero infrastructure cost.
 
-function doPost(e) {
-  try {
-    const data = JSON.parse(e.postData.contents);
-    const sheet = SS.getSheetByName(SHEET_LOG);
+**Live demo:** [danicollante.github.io/casa-mantenimiento](https://danicollante.github.io/casa-mantenimiento)  
+**Built with:** [Plugueo](https://plugueo.com) · GitHub Pages · Google Apps Script · Google Sheets
 
-    const timestamp = Utilities.formatDate(new Date(), "America/Asuncion", "yyyy-MM-dd HH:mm");
-    const fecha     = data.date || Utilities.formatDate(new Date(), "America/Asuncion", "dd/MM/yyyy");
-    const item      = data.item || "";
-    const seccion   = data.section || "";
-    const label     = data.label || "";
-    const user      = data.user || "Daniel";
+---
 
-    const allData = sheet.getDataRange().getValues();
-    let lastDate = null;
-    for (let i = allData.length - 1; i >= 2; i--) {
-      if (allData[i][2] === item) {
-        lastDate = new Date(allData[i][1].split("/").reverse().join("-"));
-        break;
-      }
-    }
-    const daysSince = lastDate ? Math.floor((new Date() - lastDate) / 86400000) : "";
+## What is this?
 
-    sheet.appendRow([timestamp, fecha, item, seccion, daysSince, label, user]);
-    updateEstado(item, fecha);
+A home maintenance tracker where the interface is triggered by a **physical NFC tag** — not an app icon on your phone.
 
-    const output = ContentService.createTextOutput(JSON.stringify({ ok: true }));
-    output.setMimeType(ContentService.MimeType.JSON);
-    return output;
+Tap the tag → the web app opens → log a task → it writes to Google Sheets instantly.
 
-  } catch(err) {
-    const output = ContentService.createTextOutput(JSON.stringify({ ok: false, error: err.message }));
-    output.setMimeType(ContentService.MimeType.JSON);
-    return output;
-  }
-}
+No native app. No subscription. No server. Total cost: **$0/month** + ~$1 per NFC tag.
 
-function doGet(e) {
-  const sheet = SS.getSheetByName(SHEET_ESTADO);
-  const data  = sheet.getDataRange().getValues();
-  const items = [];
-  for (let i = 3; i < data.length; i++) {
-    const row = data[i];
-    if (!row[1]) continue;
-    items.push({
-      section: row[0], item: row[1], frequency: row[2],
-      lastDate: row[3] ? Utilities.formatDate(new Date(row[3]), "America/Asuncion", "dd/MM/yyyy") : null,
-      status: row[6]
-    });
-  }
-  const output = ContentService.createTextOutput(JSON.stringify({ ok: true, items }));
-  output.setMimeType(ContentService.MimeType.JSON);
-  return output;
-}
+---
 
-function updateEstado(itemName, fecha) {
-  const sheet = SS.getSheetByName(SHEET_ESTADO);
-  const data  = sheet.getDataRange().getValues();
-  for (let i = 3; i < data.length; i++) {
-    if (data[i][1] === itemName) {
-      const dateObj = new Date(fecha.split("/").reverse().join("-"));
-      sheet.getRange(i + 1, 4).setValue(dateObj);
-      sheet.getRange(i + 1, 4).setNumberFormat("DD/MM/YYYY");
-      break;
-    }
-  }
-}
+## The stack
 
-function sendWeeklyReport() {
-  const sheet = SS.getSheetByName(SHEET_ESTADO);
-  const data  = sheet.getDataRange().getValues();
-  const overdue = [], upcoming = [];
-  for (let i = 3; i < data.length; i++) {
-    const status = data[i][6], daysLeft = data[i][5], item = data[i][1];
-    if (status === "VENCIDO") overdue.push(item);
-    if (typeof daysLeft === "number" && daysLeft >= 0 && daysLeft <= 7)
-      upcoming.push(`${item} (en ${daysLeft}d)`);
-  }
-  if (!overdue.length && !upcoming.length) return;
-  const email = Session.getActiveUser().getEmail();
-  const body = [
-    overdue.length  ? "⚠ VENCIDOS:\n" + overdue.join("\n") : "",
-    upcoming.length ? "\n📅 PRÓXIMOS 7 DÍAS:\n" + upcoming.join("\n") : "",
-  ].filter(Boolean).join("\n");
-  GmailApp.sendEmail(email, "🏠 Mantenimiento Casa · Resumen semanal", body);
-}
+```
+NFC tag (physical)
+    ↓
+Plugueo (event tracking layer)
+    ↓
+Web app — GitHub Pages (HTML + vanilla JS)
+    ↓
+Google Apps Script (REST API)
+    ↓
+Google Sheets (database + dashboard)
+```
 
-function setupWeeklyTrigger() {
-  ScriptApp.newTrigger("sendWeeklyReport")
-    .timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(9).create();
-}
+| Layer | Tool | Cost |
+|---|---|---|
+| Hosting | GitHub Pages | Free |
+| API | Google Apps Script | Free |
+| Database | Google Sheets | Free |
+| NFC tag | Any NTAG213/215 | ~$1 |
+| Physical tracking | Plugueo | Free tier available |
+
+---
+
+## Features
+
+- **Dashboard** — health score, overdue items, items due soon
+- **Full list** — all 33 items organized by category, filterable
+- **Per-item log** — full history with timestamps, delete entries
+- **Label support** — tag-free items like bulb replacements with a location note (e.g. "Bathroom mirror")
+- **Real-time sync** — every log entry writes to Google Sheets instantly
+- **Offline-first** — saves locally first, syncs in background
+- **NFC-ready** — designed to open via physical tag tap
+
+### Categories included
+Dryer & Washer · General Cleaning · AC Units · Plumbing · Kitchen Appliances · Bathrooms · Lighting · Garden · Lubrication · Fridge & Freezer · Devices
+
+---
+
+## How to replicate this
+
+### 1. Fork or use this template
+
+Click **"Use this template"** → **"Create a new repository"**
+
+### 2. Enable GitHub Pages
+
+In your repo: **Settings → Pages → Source: Deploy from branch (main)**
+
+Your app will be live at `https://YOUR-USERNAME.github.io/YOUR-REPO-NAME`
+
+### 3. Set up Google Sheets
+
+1. Create a new Google Sheet
+2. Rename the first sheet to `📋 Log`
+3. Create a second sheet named `📊 Estado`
+4. In `📋 Log`, add these headers in row 2:
+   `Timestamp | Fecha | Ítem | Sección | Días desde anterior | Etiqueta / Nota | Registrado por`
+
+> **Optional:** Download the [pre-formatted template sheet](#) with all formulas, conditional formatting and the full item list already configured.
+
+### 4. Deploy the Apps Script API
+
+1. In Google Sheets: **Extensions → Apps Script**
+2. Delete the default code and paste the contents of [`apps-script.js`](./apps-script.js)
+3. Click **Deploy → New deployment**
+   - Type: **Web app**
+   - Execute as: **Me**
+   - Who has access: **Anyone**
+4. Click **Deploy** → authorize permissions
+5. Copy the deployment URL (`https://script.google.com/macros/s/.../exec`)
+
+### 5. Connect the app to your Sheet
+
+In `index.html`, find this line and replace with your URL:
+
+```javascript
+const APPS_SCRIPT_URL = 'YOUR_APPS_SCRIPT_URL_HERE';
+```
+
+Commit and push — GitHub Pages deploys automatically.
+
+### 6. Set up weekly email reminders
+
+In the Apps Script editor, run `setupWeeklyTrigger()` once manually.  
+You'll receive a Sunday 9am email with overdue and upcoming items.
+
+### 7. Program your NFC tag
+
+Write your GitHub Pages URL to any NFC tag using NFC Tools (iOS/Android).
+
+**Optional:** Route through [Plugueo](https://plugueo.com) for event analytics and redirect management without reprogramming the physical tag.
+
+---
+
+## Customize your items
+
+All tracked items live in the `ITEMS` array in `index.html`:
+
+```javascript
+{ id:'your-item-id', name:'Item display name', section:'Category', freq:30 }
+```
+
+| Field | Description |
+|---|---|
+| `id` | Unique identifier (no spaces, lowercase) |
+| `name` | Display name shown in the app |
+| `section` | Category group |
+| `freq` | Frequency in days (`null` for occasional items) |
+
+Add `hasLabel:true` for items where you want to log a location note (like bulb replacements).
+
+---
+
+## Project structure
+
+```
+casa-mantenimiento/
+├── index.html          # The entire web app (HTML + CSS + JS)
+├── apps-script.js      # Google Apps Script API code
+└── README.md           # This file
+```
+
+---
+
+## The phygital concept
+
+This project is a working example of what **phygital** means in practice:
+
+> A physical object (NFC tag) triggers a digital action (log entry) without the user having to open an app, navigate a menu, or remember a URL.
+
+The friction of logging a task goes from ~30 seconds to ~5 seconds. That's the difference between a system people use and one they abandon.
+
+Built as a case study for [Plugueo](https://plugueo.com) — a platform that connects physical spaces and objects to digital experiences.
+
+---
+
+## Roadmap
+
+- [ ] Migrate item list to Google Sheets (single source of truth)
+- [ ] Shortcut automation for fully automatic NFC logging (no tap required)
+- [ ] Multi-user support
+- [ ] Push notifications via Web Push API
+
+---
+
+## License
+
+MIT — use it, fork it, adapt it.  
+If you build something with it, tag [@plugueo](https://plugueo.com) — we'd love to see it.
